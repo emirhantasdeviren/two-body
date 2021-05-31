@@ -60,10 +60,10 @@ int main(void) {
     model.a.mass = 1.0;
     model.b.mass = controller.mass_ratio;
 
-    model.a.position.x = -model.b.mass / (model.a.mass + model.b.mass);
+    model.a.position.x = model.b.mass / (model.a.mass + model.b.mass);
     model.a.position.y = 0;
 
-    model.b.position.x = model.a.mass / (model.a.mass + model.b.mass);
+    model.b.position.x = -model.a.mass / (model.a.mass + model.b.mass);
     model.b.position.y = 0;
 
     model.relative_velocity.x = 0;
@@ -162,13 +162,20 @@ void runge_kutta(
     TwoBodyController *controller,
     TwoBodyModel *model
 ) {
-    Vector k[4];
+    // Slope of r vector
+    Vector k_r[4];
+    // Slope of v vector
+    Vector k_v[4];
 
-    Vector temp_position;
+    // Position Vector: r_b - r_a
+    Vector r;
+    // Velocity Vector: v_b - v_a
+    Vector v;
 
     for (size_t i = 0; i < 4; i++) {
         if (i == 0) {
-            temp_position = sub(&model->b.position, &model->a.position);
+            r = sub(&model->b.position, &model->a.position);
+            v = model->relative_velocity;
         } else {
             double coef;
             if (i == 1 || i == 2) {
@@ -177,45 +184,48 @@ void runge_kutta(
                 coef = 1.0;
             }
 
-            Vector relative_position = sub(&model->b.position, &model->a.position);
+            Vector r0 = sub(&model->b.position, &model->a.position);
 
-            Vector velocity = {
-                k[i - 1].x * (controller->delta_time * coef) + model->relative_velocity.x,
-                k[i - 1].y * (controller->delta_time * coef) + model->relative_velocity.y
-            };
+            v.x = k_v[i - 1].x * (controller->delta_time * coef) + model->relative_velocity.x;
+            v.y = k_v[i - 1].y * (controller->delta_time * coef) + model->relative_velocity.y;
 
-            temp_position.x = velocity.x * (controller->delta_time * coef) + relative_position.x;
-            temp_position.y = velocity.y * (controller->delta_time * coef) + relative_position.y;
+            r.x = v.x * (controller->delta_time * coef) + r0.x;
+            r.y = v.y * (controller->delta_time * coef) + r0.y;
         }
-        double r_magnitude = length(&temp_position);
+        double r_magnitude = length(&r);
 
         for (size_t j = 0; j < 2; j++) {
-            *get_vector_component(k + i, j) =
-                -*get_vector_component(&temp_position, j)
+            *get_vector_component(k_v + i, j) =
+                -*get_vector_component(&r, j)
                 * (1 + controller->mass_ratio)
                 / pow(r_magnitude, 3.0);
+
+            *get_vector_component(k_r + i, j) = *get_vector_component(&v, j);
         }
     }
 
-    Vector relative_position = sub(&model->b.position, &model->a.position);
+    Vector r0 = sub(&model->b.position, &model->a.position);
     for (size_t i = 0; i < 2; i++) {
-        *get_vector_component(&model->relative_velocity, i) +=
+        *get_vector_component(&r0, i) +=
             (1.0 / 6.0 * controller->delta_time)
-                * (*get_vector_component(k, i)
-                + 2.0 * *get_vector_component(k + 1, i)
-                + 2.0 * *get_vector_component(k + 2, i)
-                + *get_vector_component(k + 3, i));
-
-        *get_vector_component(&relative_position, i) +=
-            *get_vector_component(&model->relative_velocity, i)
-            * controller->delta_time;
+                * (*get_vector_component(k_r, i)
+                + 2.0 * *get_vector_component(k_r + 1, i)
+                + 2.0 * *get_vector_component(k_r + 2, i)
+                + *get_vector_component(k_r + 3, i));
 
         *get_vector_component(&model->a.position, i) =
             -(model->b.mass / (model->a.mass + model->b.mass))
-            * *get_vector_component(&relative_position, i);
+            * *get_vector_component(&r0, i);
 
         *get_vector_component(&model->b.position, i) =
             (model->a.mass / (model->a.mass + model->b.mass))
-            * *get_vector_component(&relative_position, i);
+            * *get_vector_component(&r0, i);
+
+        *get_vector_component(&model->relative_velocity, i) +=
+            (1.0 / 6.0 * controller->delta_time)
+                * (*get_vector_component(k_v, i)
+                + 2.0 * *get_vector_component(k_v + 1, i)
+                + 2.0 * *get_vector_component(k_v + 2, i)
+                + *get_vector_component(k_v + 3, i));
     }
 }
