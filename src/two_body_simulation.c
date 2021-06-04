@@ -7,6 +7,11 @@ typedef struct {
     double y;
 } Vector;
 
+typedef enum {
+    RUNGE_KUTTA,
+    EULER,
+} OdeMethod;
+
 typedef struct {
     double mass;
     Vector position;
@@ -23,8 +28,10 @@ typedef struct {
     double mass_ratio;
     unsigned int period;
     double delta_time;
-    unsigned int method;
+    OdeMethod method;
 } TwoBodyController;
+
+typedef void (*OdeFunction)(TwoBodyController *controller, TwoBodyModel *model);
 
 double dot(Vector *lhs, Vector *rhs);
 double *get_vector_component(Vector *v, size_t index);
@@ -41,6 +48,7 @@ void runge_kutta(
     TwoBodyController *controller,
     TwoBodyModel *model
 );
+void euler(TwoBodyController *controller, TwoBodyModel *model);
 
 int main(void) {
     TwoBodyController controller;
@@ -53,8 +61,6 @@ int main(void) {
     scanf("%lf", &controller.mass_ratio);
     printf("Enter eccentricity: ");
     scanf("%lf", &controller.eccentricity);
-    printf("0. Runge-Kutta\n1. Euler's Method\nEnter method: ");
-    scanf("%u", &controller.method);
 
     TwoBodyModel model;
     model.a.mass = 1.0;
@@ -69,20 +75,36 @@ int main(void) {
     model.relative_velocity.x = 0;
     model.relative_velocity.y = sqrt((1 + controller.mass_ratio) * (1 + controller.eccentricity));
 
-    for (double t = 0; t < controller.period; t += controller.delta_time) {
-        printf("t = %lf\n", t);
-        printf(
-            "A:\tPosition: %lf, %lf\n",
-            model.a.position.x,
-            model.a.position.y
-        );
+    OdeFunction ode = 0;
+    while (!ode) {
+        printf("0. Runge-Kutta\n1. Euler's Method\nEnter method: ");
+        scanf("%u", &controller.method);
+        if (controller.method == RUNGE_KUTTA) {
+            ode = runge_kutta;
+        } else if (controller.method == EULER) {
+            ode = euler;
+        } else {
+            printf("Wrong input.\n");
+        }
+    }
 
-        printf(
-            "B:\tPosition: %lf, %lf\n\n",
-            model.b.position.x,
-            model.b.position.y
-        );
-        runge_kutta(&controller, &model); 
+    FILE *f = fopen("vertex.buf", "w");
+    if (f) {
+        for (double t = 0; t < controller.period; t += controller.delta_time) {
+            fprintf(f,
+                "(%.5lf, %.5lf)         ",
+                model.a.position.x,
+                model.a.position.y
+            );
+            fprintf(f,
+                "(%.5lf, %.5lf)\n",
+                model.b.position.x,
+                model.b.position.y
+            );
+
+            ode(&controller, &model); 
+        }
+        fclose(f);
     }
     return 0;
 }
@@ -111,6 +133,11 @@ Vector add(Vector *lhs, Vector *rhs) {
 
     Vector result = { x, y };
     return result;
+}
+
+void add_assign(Vector *lhs, Vector *rhs) {
+    lhs->x += rhs->x;
+    lhs->y += rhs->y;
 }
 
 // Passed the test
@@ -228,4 +255,26 @@ void runge_kutta(
                 + 2.0 * *get_vector_component(k_v + 2, i)
                 + *get_vector_component(k_v + 3, i));
     }
+}
+
+void euler(
+    TwoBodyController *controller,
+    TwoBodyModel *model
+) {
+    Vector r = sub(&model->b.position, &model->a.position);
+    double r_magnitude = length(&r);
+
+    Vector acceleration = mul_scalar(&r, -(1 + controller->mass_ratio) / pow(r_magnitude, 3.0));
+    Vector speed = model->relative_velocity;
+
+    Vector new_position = mul_scalar(&speed, controller->delta_time);
+    // r += v * t
+    add_assign(&r, &new_position); 
+
+    Vector new_speed = mul_scalar(&acceleration, controller->delta_time);
+    // v += a * t
+    add_assign(&model->relative_velocity, &new_speed);
+
+    model->a.position = mul_scalar(&r, -(model->b.mass / (model->a.mass + model->b.mass)));
+    model->b.position = mul_scalar(&r, (model->a.mass / (model->a.mass + model->b.mass)));
 }
