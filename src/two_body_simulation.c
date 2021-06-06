@@ -57,10 +57,13 @@ int main(void) {
     scanf("%u", &controller.period);
     printf("Enter delta time (dt): ");
     scanf("%lf", &controller.delta_time);
-    printf("Enter mass ratio: ");
+    printf("Enter mass ratio (q): ");
     scanf("%lf", &controller.mass_ratio);
-    printf("Enter eccentricity: ");
-    scanf("%lf", &controller.eccentricity);
+    controller.eccentricity = 22;
+    while (controller.eccentricity < 0 || controller.eccentricity > 1) {
+        printf("Enter eccentricity (between 0 and 1): ");
+        scanf("%lf", &controller.eccentricity);
+    }
 
     TwoBodyModel model;
     model.a.mass = 1.0;
@@ -84,11 +87,11 @@ int main(void) {
         } else if (controller.method == EULER) {
             ode = euler;
         } else {
-            printf("Wrong input.\n");
+            printf("\nWrong input.\n");
         }
     }
 
-    FILE *f = fopen("vertex.buf", "w");
+    FILE *f = fopen("out_c.txt", "w");
     if (f) {
         for (double t = 0; t < controller.period; t += controller.delta_time) {
             fprintf(f,
